@@ -31,23 +31,25 @@ There are two endings: *Queen of Queens* (accept Jim-Bob's offer) and *Just Be* 
 - `js/audio.js`: synthesised alarm and ambiences (WebAudio).
 - `js/minigames.js`: the void-hold mechanic.
 
-## Arena Lund (`arena/`)
+## Arena Lund (`arena/Arena_Lund.html`)
 
 A separate 3D scene: an art déco arena on the south side of Lund, Skåne, with the town round it. It uses the same
 rendering approach as the *Arena do Rei Antony* scene it is based on (procedural Three.js, instanced facades, a physical
 sky with haze, a day–night cycle, traffic and crowds), but none of that scene's places.
 
-Open `arena/index.html` (or serve the folder and open `/arena/`). Drag to orbit, scroll to zoom, right-drag to pan,
+Everything is in one self-contained file, like the scene it is based on: open `arena/Arena_Lund.html` in a browser,
+online or offline. Drag to orbit, scroll to zoom, right-drag to pan,
 and use the slider at the bottom to change the time of day; after sunset the arena's windows, neon and globes light up.
 `?t=20.5` starts at a given hour and `?cam=x,y,z,tx,ty,tz` at a given camera.
 
 - **The arena**: a stepped drum in ivory stone with tall amber windows between fluted piers, a green frieze tier, a ribbed
   verdigris dome with a glazed lantern, and an entrance tower with a sunburst, a clock, a bulb marquee and gold neon.
-  The name is set by `ARENA_NAME` at the top of `arena/js/arena-lund.js`.
+  The name is set by `ARENA_NAME` at the top of the scene script in `arena/Arena_Lund.html`.
 - **Lund**: the cathedral with its twin towers, Universitetshuset, Kungshuset, AF-borgen and the squares inside the ring
   of the old walls; Lund C with trains, the tram out to Brunnshög (MAX IV, ESS), the hospital, the engineering campus,
   terraced houses, villas and 1960s slab blocks, and a great many bicycles.
 - **Round it**: Skåne's autumn fields, farmsteads and wind turbines, Höje å, Romeleåsen, the Öresund to the west, and
   Malmö with the Turning Torso on the horizon.
 
-`arena/vendor/` holds Three.js r128 with its OrbitControls and Sky examples (MIT licence, © Three.js authors).
+The file embeds Three.js r128 with its OrbitControls and Sky examples (MIT licence, © Three.js authors) and the fonts
+Limelight, Josefin Sans and IBM Plex Mono (SIL Open Font Licence).
