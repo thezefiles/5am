@@ -76,7 +76,7 @@
     #title { max-width: calc(100% - 32px); padding: 10px 14px; }
     #title h1 { font-size: 19px; }
     #title p, #help { display: none; }
-    #info { top: auto; bottom: 200px; left: 16px; right: 16px; width: auto; }
+    #info { top: calc(max(16px, env(safe-area-inset-top)) + 80px); left: 16px; right: 16px; width: auto; }
     .row label { min-width: 0; }
   }
 </style>
@@ -950,8 +950,8 @@ function buildTerrain() {
           float rr = length(vWP.xz);
           float farm = smoothstep(1500.0, 2600.0, rr) * (1.0 - smoothstep(14000.0, 24000.0, vWP.z));
           vec3 col = mix(meadow, crop, farm * 0.85 * smoothstep(0.35, 0.55, n2 + 0.3));
-          // Gardens in the town: lawns a touch brighter, gravel and paving between.
-          col = mix(col, mix(vec3(0.2, 0.28, 0.09), vec3(0.42, 0.4, 0.36), smoothstep(0.55, 0.8, n3)), vInfo.y * 0.6);
+          // Gardens in the town: lawns a touch brighter, worn drier patches between.
+          col = mix(col, mix(vec3(0.2, 0.28, 0.09), vec3(0.29, 0.3, 0.15), smoothstep(0.5, 0.85, n3)), vInfo.y * 0.6);
           // Woods: dark spruce flecked with beech in autumn colour.
           float nearT = 1.0 - smoothstep(2600.0, 3600.0, rr);
           float spk = texture2D(uNoise, vWP.xz / 13.0).b;
@@ -1000,7 +1000,8 @@ function drape(line, width, yOff, mat, { uvLen = 12, parent = site, flat = false
     const [x, z] = line[i], yc = flat ? meshH(x, z).h : 0;
     for (const s of [-1, 1]) {
       const px = x + nx * s * width / 2, pz = z + nz * s * width / 2;
-      let py = flat ? yc : meshH(px, pz).h;
+      // Level water still rises to meet a bank that stands above it, or the bank cuts it off in steps.
+      let py = flat ? Math.max(yc, meshH(px, pz).h) : meshH(px, pz).h;
       if (yFn) py = yFn(x, z, py);
       P.push(px, py + yOff, pz); U.push(s < 0 ? 0 : 1, along / uvLen);
     }
@@ -1452,7 +1453,9 @@ function buildForecourt() {
   // The fountain: a stone basin, a tiered column, water in the bowls.
   const fz = zc, stoneM = M.stone;
   mesh(lathe([[9.6, 0], [9.6, 0.75], [9.1, 0.85], [9.0, 0.6], [0.001, 0.6]], 48), stoneM, 0, 0, fz);
-  const water = new THREE.MeshStandardMaterial({ color: 0x3a6070, roughness: 0.06, metalness: 0.2, normalMap: TEX.water, normalScale: new THREE.Vector2(0.3, 0.3) });
+  // Its own copy of the ripples: the river's is stretched 60 times along its length.
+  TEX.pond = withRepeat(TEX.water, 2, 2);
+  const water = new THREE.MeshStandardMaterial({ color: 0x3a6070, roughness: 0.06, metalness: 0.2, normalMap: TEX.pond, normalScale: new THREE.Vector2(0.3, 0.3) });
   mesh(new THREE.CircleGeometry(9.0, 48).rotateX(-Math.PI / 2), water, 0, 0.62, fz, site, false);
   mesh(lathe([[1.4, 0], [1.1, 0.5], [0.7, 1.0], [0.6, 2.6], [3.2, 2.9], [3.4, 3.2], [0.6, 3.3], [0.45, 4.6], [1.6, 4.8], [1.7, 5.05], [0.4, 5.1], [0.3, 6.0], [0.5, 6.2], [0.001, 6.5]], 32), stoneM, 0, 0.6, fz);
   mesh(new THREE.CircleGeometry(3.1, 32).rotateX(-Math.PI / 2), water, 0, 3.75, fz, site, false);
@@ -1686,8 +1689,8 @@ function onion(r, h, mat) {
   const pts = [[r * 0.95, 0], [r * 1.0, h * 0.05], [r * 1.15, h * 0.22], [r * 1.05, h * 0.36], [r * 0.6, h * 0.5], [r * 0.25, h * 0.58], [r * 0.28, h * 0.64], [r * 0.5, h * 0.72], [r * 0.42, h * 0.82], [r * 0.12, h * 0.9], [r * 0.08, h * 0.96], [0.001, h]];
   return lathe(pts, 16);
 }
-function church({ x, z, ry, L, W, H, tower, tH, wall = 0xf4eee0, trim = 0xe2b866, onionMat, name, text, tScale = 1 }) {
-  const y = groundH(x, z), g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; site.add(g);
+function church({ x, z, y = groundH(x, z), ry, L, W, H, tower, tH, wall = 0xf4eee0, trim = 0xe2b866, onionMat, name, text, tScale = 1 }) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; site.add(g);
   const wm = std(wall, { roughness: 0.9 }), tm = std(trim, { roughness: 0.85 });
   const tiles = std(0xffffff, { map: TEX.tiles, roughness: 0.8 });
   // Nave with a rounded apse, steep tiled roof.
@@ -1701,7 +1704,9 @@ function church({ x, z, ry, L, W, H, tower, tH, wall = 0xf4eee0, trim = 0xe2b866
   mesh(rf.geo(), tiles, 0, 0, 0, g);
   const gab = new GB(); gab.tri([-L / 2, H, -W / 2], [-L / 2, H, W / 2], [-L / 2, H + rise, 0], [0, 0], [1, 0], [0.5, 1], [-1, 0, 0]); gab.tri([L / 2, H, W / 2], [L / 2, H, -W / 2], [L / 2, H + rise, 0], [0, 0], [1, 0], [0.5, 1], [1, 0, 0]);
   mesh(gab.geo(), wm, 0, 0, 0, g);
-  mesh(new THREE.ConeGeometry(W / 2 + 0.6, rise * 0.9, 20, 1, false, 0, Math.PI).translate(0, H + rise * 0.45, 0), tiles, L / 2, 0, 0, g);
+  // The apse's half-cone roof, its tiles scaled like the nave's (the cone's own UVs stretch one tile over metres).
+  const ar = W / 2 + 0.6, ah = rise * 0.9;
+  mesh(uvMetres(new THREE.ConeGeometry(ar, ah, 20, 1, false, 0, Math.PI), Math.PI * ar, Math.hypot(ar, ah), 2, 2).translate(0, H + ah / 2, 0), tiles, L / 2, 0, 0, g);
   // Tall round-headed windows, lit after dark.
   const win = new THREE.MeshStandardMaterial({ color: 0x2a3440, roughness: 0.2, metalness: 0.3, emissive: 0xffc070, emissiveIntensity: 0 });
   stdGlow(win, 1.6, 0);
@@ -1745,7 +1750,7 @@ function buildPit() {
   for (let yy = 4; yy < H; yy += 4) { parts.push(new THREE.BoxGeometry(B, 0.3, 0.3).translate(0, yy, B / 2), new THREE.BoxGeometry(B, 0.3, 0.3).translate(0, yy, -B / 2), new THREE.BoxGeometry(0.3, 0.3, B).translate(B / 2, yy, 0), new THREE.BoxGeometry(0.3, 0.3, B).translate(-B / 2, yy, 0)); }
   for (let yy = 0; yy < H - 4; yy += 4) [-1, 1].forEach((s) => { const d = new THREE.BoxGeometry(0.2, Math.hypot(4, B), 0.2); d.rotateX(Math.atan2(B, 4) * s); parts.push(d.translate(B / 2, yy + 2, 0), d.clone().translate(-B / 2 - 0, 0, 0).translate(-B, 0, 0)); });
   // The raking strut back to the engine house.
-  const strut = new THREE.BoxGeometry(0.8, Math.hypot(26, H - 2), 0.8); strut.rotateZ(Math.atan2(26, H - 2)); parts.push(strut.translate(-13, (H - 2) / 2, 2.5), strut.clone().translate(0, 0, -5));
+  const strut = new THREE.BoxGeometry(0.8, Math.hypot(26, H - 2), 0.8); strut.rotateZ(-Math.atan2(26, H - 2)); parts.push(strut.translate(-13, (H - 2) / 2, 2.5), strut.clone().translate(0, 0, -5));
   parts.push(new THREE.BoxGeometry(B + 2, 0.5, B + 2).translate(0, H, 0));
   mesh(merge(parts, { uv: false }), steel, 0, 0, 0, g);
   const wheelG = merge([new THREE.TorusGeometry(2.6, 0.18, 8, 32), ...[0, 1, 2, 3].map((k) => new THREE.BoxGeometry(5.2, 0.12, 0.12).rotateZ(k * Math.PI / 4)), new THREE.CylinderGeometry(0.3, 0.3, 0.6, 10).rotateX(Math.PI / 2)], { uv: false });
@@ -1759,7 +1764,7 @@ function buildPit() {
   mesh(eh.geo(), brick, -30, 0, 0, g);
   const rf = new GB(); [1, -1].forEach((s) => rf.quad([-L / 2 - 0.5, HH + 4.1, 0], [L / 2 + 0.5, HH + 4.1, 0], [L / 2 + 0.5, HH - 0.3, s * (W / 2 + 0.6)], [-L / 2 - 0.5, HH - 0.3, s * (W / 2 + 0.6)], [0, 0], [1, 0], [1, 1], [0, 1], [0, 1, s]));
   mesh(rf.geo(), std(0x4a4d52, { roughness: 0.6, metalness: 0.3 }), -30, 0, 0, g);
-  mesh(new THREE.CylinderGeometry(1.2, 2.4, 52, 16).translate(0, 26, 0), wallMat(3, { color: 0x9a4a34, lit: 0 }), -46, 0, 9, g);
+  mesh(uvMetres(new THREE.CylinderGeometry(1.2, 2.4, 52, 16), Math.PI * 3.6, 52).translate(0, 26, 0), wallMat(3, { color: 0x9a4a34, lit: 0 }), -46, 0, 9, g);
   mesh(new THREE.CylinderGeometry(1.45, 1.45, 1.2, 16).translate(0, 52, 0), M.stone, -46, 0, 9, g);
   PIT.light = basicGlow(0xff2a1a, 3, 0.4);
   mesh(new THREE.SphereGeometry(0.35, 8, 6), PIT.light, -46, 53, 9, g, false, false);
@@ -1784,14 +1789,17 @@ function buildStation() {
 }
 // On top of the Hoher Peißenberg: the pilgrimage church, the inn and the weather observatory's radar tower.
 function buildSummit() {
-  const { x, z } = SUMMIT, y = groundH(x, z);
+  // The terrain mesh is coarse this far out and cuts under the rounded top of the hill, so everything here stands
+  // on the rendered ground (meshH), not on groundH, or it floats.
+  const { x, z } = SUMMIT, gy = (dx, dz) => meshH(x + dx, z + dz).h;
   const copperOnion = std(0xffffff, { map: TEX.copper, roughness: 0.55, metalness: 0.25 });
-  church({ x: x + 10, z: z + 12, ry: 0.1, L: 30, W: 13, H: 11, tower: 6.5, tH: 28, onionMat: copperOnion, name: 'Hoher Peißenberg',
+  church({ x: x + 10, z: z + 12, y: gy(10, 12), ry: 0.1, L: 30, W: 13, H: 11, tower: 6.5, tH: 28, onionMat: copperOnion, name: 'Hoher Peißenberg',
     text: 'The summit of the Hoher Peißenberg, 988 m: the pilgrimage church, an inn, and the weather observatory, founded in 1781, whose radar dome looks out over the Alps.', tScale: 0.9 });
   const inn = houseProto({ L: 18, W: 13, H: 8.4, pitch: 30, balc: [2.8, 5.6] });
-  [inn.wl, inn.top, inn.wd, inn.bl].forEach((geo, i) => mesh(geo, [wallMat(0, { shutter: '#6b4a2e', color: 0xf2e6d0, lit: 0.8 }), std(0xffffff, { map: TEX.tiles }), std(0x5a3e2a), std(0x7a5534)][i], x - 35, y, z + 20).rotation.y = Math.PI / 2);
-  const white = std(0xf2f2ee, { roughness: 0.5 });
-  mesh(new THREE.CylinderGeometry(3.2, 3.8, 34, 20).translate(0, 17, 0), white, x - 20, y, z - 30);
+  [inn.wl, inn.top, inn.wd, inn.bl].forEach((geo, i) => mesh(geo, [wallMat(0, { shutter: '#6b4a2e', color: 0xf2e6d0, lit: 0.8 }), std(0xffffff, { map: TEX.tiles }), std(0x5a3e2a), std(0x7a5534)][i], x - 35, gy(-35, 20), z + 20).rotation.y = Math.PI / 2);
+  const white = std(0xf2f2ee, { roughness: 0.5 }), y = gy(-20, -30);
+  SUMMIT.radarY = y;
+  mesh(new THREE.CylinderGeometry(3.2, 3.87, 38, 20).translate(0, 15, 0), white, x - 20, y, z - 30);   // footed 4 m into the slope
   mesh(new THREE.CylinderGeometry(5.2, 5.2, 1.2, 24).translate(0, 0.6, 0), white, x - 20, y + 34, z - 30);
   mesh(new THREE.SphereGeometry(4.6, 28, 18), std(0xfafafa, { roughness: 0.35 }), x - 20, y + 39.2, z - 30);
   SUMMIT.light = basicGlow(0xff2a1a, 3, 0.4);
@@ -1863,16 +1871,23 @@ function spruceGeo(sides, tiers) {
 function buildTrees() {
   const nearD = [], farD = [], nearC = [], farC = [];
   const rNear = MOBILE ? 800 : 1200, rMax = MOBILE ? 2800 : 3800, cell = MOBILE ? 15 : 11.5;
-  for (let gx = -rMax; gx < rMax; gx += cell) for (let gz = -rMax; gz < rMax; gz += cell) {
-    const x = gx + R(-5, 5), z = gz + R(-5, 5), r = Math.hypot(x, z);
-    if (r > rMax) continue;
-    const { h, g } = meshH(x, z), f = forestAt(x, z, h + curveDrop(x, z), g);
-    if (f <= 0 || rand() > f || busy(x, z, 2) || occHas(x, z)) continue;
-    const conifer = rand() < 0.58 + 0.25 * smooth(150, 380, h);
-    const near = r < rNear;
-    if (conifer) { const ht = R(18, 32); (near ? nearC : farC).push({ x, y: h - 0.3, z, ry: R(0, 6.28), sx: ht * R(0.85, 1.1), sy: ht, sz: ht * R(0.85, 1.1), c: new THREE.Color().setScalar(R(0.8, 1.1)) }); }
-    else { const s = R(1.6, 2.6); (near ? nearD : farD).push({ x, y: h - 0.2, z, ry: R(0, 6.28), sx: s, sy: s * R(0.9, 1.15), sz: s, c: new THREE.Color(pick(AUTUMN)) }); }
-  }
+  const scatter = (x0, x1, z0, z1, keep) => {
+    for (let gx = x0; gx < x1; gx += cell) for (let gz = z0; gz < z1; gz += cell) {
+      const x = gx + R(-5, 5), z = gz + R(-5, 5), r = Math.hypot(x, z);
+      if (!keep(x, z, r)) continue;
+      const { h, g } = meshH(x, z), f = forestAt(x, z, h + curveDrop(x, z), g);
+      if (f <= 0 || rand() > f || busy(x, z, 2) || occHas(x, z)) continue;
+      const conifer = rand() < 0.58 + 0.25 * smooth(150, 380, h);
+      const near = r < rNear;
+      if (conifer) { const ht = R(18, 32); (near ? nearC : farC).push({ x, y: h - 0.3, z, ry: R(0, 6.28), sx: ht * R(0.85, 1.1), sy: ht, sz: ht * R(0.85, 1.1), c: new THREE.Color().setScalar(R(0.8, 1.1)) }); }
+      else { const s = R(1.6, 2.6); (near ? nearD : farD).push({ x, y: h - 0.2, z, ry: R(0, 6.28), sx: s, sy: s * R(0.9, 1.15), sz: s, c: new THREE.Color(pick(AUTUMN)) }); }
+    }
+  };
+  scatter(-rMax, rMax, -rMax, rMax, (x, z, r) => r <= rMax);
+  // The Hoher Peißenberg's woods reach well past that circle (the summit is 3.9 km out): plant the rest of the hill
+  // too, so its forest doesn't end on a ring round the town.
+  const HX = 2900, HZ = 2150;
+  scatter(HILL.x - HX, HILL.x + HX, HILL.z - HZ, HILL.z + HZ, (x, z, r) => r > rMax && Math.hypot((x - HILL.x) / 1.35, z - HILL.z) < 2150);
   // Gardens, avenues and the summit.
   STREET_TREES.forEach((t) => {
     const h = meshH(t.x, t.z).h;
@@ -1938,11 +1953,15 @@ function buildLamps() {
   // Warm pools on the ground under each lamp.
   const poolMat = new THREE.MeshBasicMaterial({ map: TEX.pool, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   poolMat.userData.base = new THREE.Color(0xffb86a); glowList.push({ m: poolMat, base: 0.3, min: 0 });
-  const pools = instanced(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), poolMat, LAMPS.map((l) => ({ x: l.x, y: l.y + 0.4, z: l.z, sx: 14, sy: 1, sz: 14 })));
+  // Each pool is tilted to the slope under it, so the ground doesn't cut it off with a hard edge.
+  const pools = instanced(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), poolMat, LAMPS.map((l) => {
+    const e = 5, gx = (meshH(l.x + e, l.z).h - meshH(l.x - e, l.z).h) / (2 * e), gz = (meshH(l.x, l.z + e).h - meshH(l.x, l.z - e).h) / (2 * e);
+    return { x: l.x, y: l.y + 0.45, z: l.z, sx: 14, sy: 1, sz: 14, rx: -Math.atan(gz), rz: Math.atan(gx) };
+  }));
   pools.renderOrder = 3; pools.receiveShadow = false;
   // Uplighters washing the arena's front after dark.
   addGlowPoints([[-30, 1.2, 46], [-15, 1.2, 46], [15, 1.2, 46], [30, 1.2, 46], [-36.5, 1.0, 31], [36.5, 1.0, 31]], 7, 0xffd8a0, 0.7);
-  addGlowPoints([[PIT.x - 46 * Math.cos(0.3) + 9 * Math.sin(0.3), groundH(PIT.x, PIT.z) + 53, PIT.z + 46 * Math.sin(0.3) + 9 * Math.cos(0.3)], [SUMMIT.x - 20, groundH(SUMMIT.x, SUMMIT.z) + 44, SUMMIT.z - 30]], 26, 0xff3020, 1.0);
+  addGlowPoints([[PIT.x - 46 * Math.cos(0.3) + 9 * Math.sin(0.3), groundH(PIT.x, PIT.z) + 53, PIT.z + 46 * Math.sin(0.3) + 9 * Math.cos(0.3)], [SUMMIT.x - 20, SUMMIT.radarY + 44, SUMMIT.z - 30]], 26, 0xff3020, 1.0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1956,10 +1975,13 @@ function buildPeople() {
   // A crowd on the square before the steps.
   instanced(geo, mat, PEOPLE_SPOTS.map(([x, z]) => ({ x, y: 0.06, z, ry: R(-0.6, 0.6) + Math.PI, c: new THREE.Color(pick(JACKETS)) })));
   // Strollers: round the garden's paths, up the avenue, along the street.
+  // The fountain fills the crossing of the avenue and the cross path, so walkers on those turn back short of it.
   const loops = [
-    [[-7, 0.05, 64], [7, 0.05, 64], [7, 0.05, 160], [-7, 0.05, 160]],
+    [[-7, 0.05, 64], [7, 0.05, 64], [7, 0.05, 98], [-7, 0.05, 98]],
+    [[-7, 0.05, 126], [7, 0.05, 126], [7, 0.05, 160], [-7, 0.05, 160]],
     [[-60, 0.05, 66], [60, 0.05, 66], [60, 0.05, 163], [-60, 0.05, 163]],
-    [[-60, 0.05, 112], [60, 0.05, 112], [55, 0.05, 108], [-55, 0.05, 108]],
+    [[-60, 0.05, 114], [-13, 0.05, 114], [-13, 0.05, 110], [-55, 0.05, 110]],
+    [[13, 0.05, 114], [60, 0.05, 114], [55, 0.05, 110], [13, 0.05, 110]],
     [[-40, 0.05, 44], [0, 0.05, 38.5], [40, 0.05, 44], [0, 0.05, 60]]
   ].map((l) => new Path(l, true));
   ROADS.slice(0, 2).forEach((r) => {
@@ -2016,9 +2038,11 @@ function buildCars() {
   CARS.mesh.castShadow = false;
 }
 const _look = new THREE.Matrix4(), _up = new V3(0, 1, 0), _tgt = new V3(), _pos = new V3(), _cm = new THREE.Matrix4(), _rot = new THREE.Matrix4().makeRotationY(-Math.PI / 2);
-function pathMatrix(path, s, out, ahead = 3) {
-  path.at(s, _o); _pos.set(_o.x, _o.y, _o.z);
-  path.at(s + ahead, _o); _tgt.set(_o.x, _o.y, _o.z);
+function pathMatrix(path, s, out, ahead = 3, wrap = true) {
+  path.at(s, _o, wrap); _pos.set(_o.x, _o.y, _o.z);
+  // On an open path, near its ends, look back instead of past the end (which would wrap to the other end).
+  if (!wrap && (s + ahead > path.len || s + ahead < 0)) { path.at(s - ahead, _o, false); _tgt.set(2 * _pos.x - _o.x, 2 * _pos.y - _o.y, 2 * _pos.z - _o.z); }
+  else { path.at(s + ahead, _o, wrap); _tgt.set(_o.x, _o.y, _o.z); }
   _look.lookAt(_tgt, _pos, _up);
   return out.copy(_look).multiply(_rot).setPosition(_pos);
 }
@@ -2051,13 +2075,16 @@ function buildTrain() {
   });
   TRAIN.lights = [basicGlow(0xfff2d8, 3, 0), basicGlow(0xff2a1a, 2.4, 0)];
   TRAIN.headM = mesh(new THREE.BoxGeometry(0.1, 0.3, 2.0), TRAIN.lights[0], 0, 0, 0, scene, false, false);
-  TRAIN.T = 0;
+  // Start with the train standing at the station, not out at the far end of the line.
+  TRAIN.T = (TRAIN.stop - CAR_GAP / 2) / 22 + 5;
   updateTrain(0);
   pickable(TRAIN.cars[0].children[0], 'Regional train', 'Two red railcars on the branch line, calling at Peißenberg on their way between Weilheim and Schongau.');
 }
 // Shuttle: run up the line, wait, run back; ease in and out of the station.
+// s is the car nearer the start of the line (the other is CAR_GAP further on), so both stay on the line at its ends.
+const CAR_GAP = 25.6;
 function trainPos(T) {
-  const L = TRAIN.path.len, v = 22, stop = TRAIN.stop, wait = 30;
+  const L = TRAIN.path.len - CAR_GAP, v = 22, stop = TRAIN.stop - CAR_GAP / 2, wait = 30;
   const a = stop / v, b = (L - stop) / v, cyc = 2 * (a + b) + 4 * wait, t = ((T % cyc) + cyc) % cyc;
   const ease = (x) => x * x * (3 - 2 * x);
   if (t < a) return { s: stop * ease(t / a), dir: 1 };
@@ -2072,9 +2099,10 @@ function trainPos(T) {
 function updateTrain(dt) {
   TRAIN.T += dt;
   const { s, dir } = trainPos(TRAIN.T);
+  // The first car always leads (the two railcars look alike, so swapping places at the end of the line goes unseen).
   TRAIN.cars.forEach((g, k) => {
-    const sk = clamp(s - dir * k * 25.6, 0, TRAIN.path.len - 0.01);
-    pathMatrix(TRAIN.path, sk, g.matrix, dir * 4);
+    const sk = s + (dir > 0 ? 1 - k : k) * CAR_GAP;
+    pathMatrix(TRAIN.path, sk, g.matrix, dir * 4, false);
     g.matrixWorldNeedsUpdate = true;
   });
   TRAIN.cars[0].matrix.decompose(_pos, _q, _s);
@@ -2520,6 +2548,12 @@ function goView(view) {
   mode = view === 'orbit' ? 'orbit' : 'free';
   const v = VIEWS[view];
   if (view === 'summit') { const gy = groundH(SUMMIT.x, SUMMIT.z); v.pos = [SUMMIT.x + 230, gy + 85, SUMMIT.z + 330]; v.target = [SUMMIT.x - 15, gy + 18, SUMMIT.z - 10]; }
+  // Stand in the middle of the Hauptstraße (the houses line both sides of it), looking north up the street.
+  if (view === 'street') {
+    const at = (z) => ROADS[0].line.reduce((b, p) => (Math.abs(p[1] - z) < Math.abs(b[1] - z) ? p : b));
+    const [px, pz] = at(330), [tx, tz] = at(120);
+    v.pos = [px, meshH(px, pz).h + 4.5, pz]; v.target = [tx, meshH(tx, tz).h + 8, tz];
+  }
   flyTo(v.pos, v.target);
 }
 document.querySelectorAll('#views [data-view]').forEach((b) => b.addEventListener('click', () => goView(b.dataset.view)));
@@ -2595,7 +2629,7 @@ function frame() {
   const simDt = trafficOn && !REDUCED ? dt : 0;
   simTime += simDt;
   skyU.time.value += dt;
-  TEX.water.offset.y -= dt * 0.02;
+  TEX.water.offset.y -= dt * 0.02; TEX.pond.offset.x += dt * 0.01;
   updateCars(simDt);
   updatePeople(simDt, simTime);
   updateTrain(simDt);
