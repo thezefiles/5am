@@ -28,15 +28,6 @@
     -webkit-backdrop-filter: blur(12px) saturate(1.2);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   }
-  #dock {
-    position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%);
-    padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
-    width: min(820px, calc(100% - 32px));
-  }
-  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .row label { font-size: 12px; color: var(--muted); min-width: 84px; }
-  #tod { flex: 1; min-width: 140px; accent-color: var(--accent); }
-  #todLabel { font-size: 12px; font-weight: 600; min-width: 86px; text-align: right; color: var(--accent); }
   button {
     font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text);
     background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14);
@@ -53,7 +44,6 @@
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   }
   #btnScout:hover:not(:disabled) { background: var(--accent); color: var(--accent-ink); }
-  .spacer { flex: 1; }
   #tip {
     position: fixed; pointer-events: none; padding: 5px 9px; font-size: 12px; font-weight: 600;
     background: rgba(10, 12, 18, 0.85); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 7px;
@@ -63,8 +53,6 @@
   #info h2 { margin: 0 0 6px; font-size: 16px; }
   #info p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
   #info button { margin-top: 10px; }
-  #help { position: fixed; top: 16px; right: 16px; padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.6; }
-  #help b { color: var(--text); font-weight: 600; }
   #loading {
     position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
     background: radial-gradient(ellipse at 50% 70%, #3a2e26 0%, #141824 60%, #0b0f18 100%); z-index: 10; transition: opacity 0.6s;
@@ -74,9 +62,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { #loading .ring { animation-duration: 3s; } }
   @media (max-width: 720px) {
-    #help { display: none; }
     #info { top: calc(max(16px, env(safe-area-inset-top)) + 56px); left: 16px; right: 16px; width: auto; }
-    .row label { min-width: 0; }
   }
 </style>
 <script type="importmap">
@@ -91,35 +77,10 @@
 <body>
 <div id="app"></div>
 
-<div id="help" class="card">
-  <b>1-7</b> camera views &nbsp; <b>T</b> cycle time<br />
-  <b>S</b> scout &nbsp; <b>Space</b> pause traffic &nbsp; <b>G</b> toggle glow
-</div>
-
 <div id="info" class="card">
   <h2 id="infoTitle"></h2>
   <p id="infoText"></p>
   <button id="infoClose" type="button">Close</button>
-</div>
-
-<div id="dock" class="card">
-  <div class="row">
-    <label for="tod">Time of day</label>
-    <input id="tod" type="range" min="0" max="1" step="0.001" value="0.5" />
-    <span id="todLabel">Golden hour</span>
-  </div>
-  <div class="row" id="views">
-    <button type="button" data-view="aerial">Aerial</button>
-    <button type="button" data-view="forecourt">Forecourt</button>
-    <button type="button" data-view="street">Street</button>
-    <button type="button" data-view="summit">Hoher Peißenberg</button>
-    <button type="button" data-view="alps">Alps</button>
-    <button type="button" data-view="follow">Follow train</button>
-    <button type="button" data-view="orbit">Orbit</button>
-    <span class="spacer"></span>
-    <button type="button" id="btnTraffic">Pause traffic</button>
-    <button type="button" id="btnGlow" class="active">Glow</button>
-  </div>
 </div>
 
 <button type="button" id="btnScout" disabled>Scout</button>
@@ -131,7 +92,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
@@ -229,7 +189,7 @@ class SegIndex {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Renderer, bloom, controls                                          */
+/*  Renderer, post-processing, controls                                */
 /* ------------------------------------------------------------------ */
 const renderer = new THREE.WebGLRenderer({ antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
 const DPR = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 2);
@@ -262,9 +222,8 @@ const composer = new EffectComposer(renderer, composerTarget);
 composer.setPixelRatio(DPR);
 composer.setSize(innerWidth, innerHeight);
 composer.addPass(new RenderPass(scene, camera));
-// A single NaN or infinite pixel (a degenerate normal, an overflowing highlight; some GPUs make them where others
-// don't) is smeared by the bloom's blur chain into a large black square. Drop such pixels, and cap the very bright,
-// before the bloom sees them. The exponent-bits test survives compilers that optimise isnan() away.
+// Drop any NaN or infinite pixel (a degenerate normal, an overflowing highlight; some GPUs make them where others
+// don't), and cap the very bright. The exponent-bits test survives compilers that optimise isnan() away.
 composer.addPass(new ShaderPass({
   uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -275,8 +234,6 @@ composer.addPass(new ShaderPass({
       gl_FragColor = any(equal(e, uvec4(0x7f800000u))) ? vec4(0.0, 0.0, 0.0, 1.0) : min(max(c, 0.0), vec4(256.0));
     }`
 }));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.55, 0.92);
-composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 /* ------------------------------------------------------------------ */
@@ -292,8 +249,8 @@ function basicGlow(color, base = 1, min = 0, extra = {}) {
 }
 function stdGlow(mat, base = 1, min = 0) { glowList.push({ m: mat, base, min }); return mat; }
 // Far off, a bright speck (a sun glint on a window, a car or the river; a headlight) covers a pixel or less and
-// flickers as the camera or the traffic moves, and the bloom blows it up into a glaring square. Past `near` metres
-// cap what the material can output, reaching `cap` at `far`: just under the bloom threshold, or 0 to fade it out.
+// flickers as the camera or the traffic moves. Past `near` metres cap what the material can output, reaching `cap`
+// at `far` (0 fades it out).
 function capFar(mat, near, far, cap = 0.85) {
   const prev = mat.onBeforeCompile, key = mat.customProgramCacheKey.bind(mat);
   mat.onBeforeCompile = (sh, r) => {
@@ -1221,7 +1178,9 @@ function buildArena() {
 // carrying the entablature with the name, and a broken segmental pediment with the club's cartouche.
 function buildFrontispiece() {
   const { podium: P, g1, g2, ent } = AR, HD = A.D / 2, F = HD + 6, FW = 30;
-  mesh(boxUV(FW, ent - P, 6, 3.2, 3.2).translate(0, P + (ent - P) / 2, HD + 3), M.brick, 0, 0, 0);
+  // The core sits a little inside the façades (as the main block's does): flush with them, its faces z-fought the
+  // stone and brick panels into a flickering speckle.
+  mesh(boxUV(FW - 0.2, ent - P, 5.8, 3.2, 3.2).translate(0, P + (ent - P) / 2, HD + 2.9), M.brick, 0, 0, 0);
   mesh(boxUV(FW + 2, P, 9, 3.2, 3.2).translate(0, P / 2, HD + 4.5), M.stone, 0, 0, 0);
   const fg = faceGroup(0, F, 0);
   wallRun(fg, FW, 3, { pil: false, bal: false, winUp: true, gwin: false });
@@ -1854,7 +1813,7 @@ function buildBridge() {
   const stone = std(0xffffff, { map: TEX.stone, roughness: 0.85 });
   const depth = cy - meshH(ammerX(cz), cz).h + 3;
   // The arches are cut into the bottom edge of the outline. (As holes touching that edge, closed back onto their
-  // first point, they made zero-area faces whose NaN normals the bloom spread into big black squares.)
+  // first point, they made zero-area faces whose NaN normals showed as big black squares.)
   const rr = clamp(depth - 5.5, 4, 14), spring = -depth + Math.max(4, depth - 20);
   const shape = new THREE.Shape(); shape.moveTo(-L / 2 + 20, 0.2); shape.lineTo(L / 2 - 20, 0.2); shape.lineTo(L / 2 - 20, -depth);
   [1, 0, -1].forEach((k) => { const sx = k * 36; shape.lineTo(sx + rr, -depth); shape.lineTo(sx + rr, spring); shape.absarc(sx, spring, rr, 0, Math.PI, false); shape.lineTo(sx - rr, -depth); });
@@ -2327,7 +2286,7 @@ function startScout() {
   S.used = true;
   if (!S.built) buildScout();
   $('btnScout').disabled = true;
-  tween = null; mode = 'free'; setActive(null); controls.autoRotate = false;
+  tween = null; mode = 'free'; controls.autoRotate = false;
   S.on = true; S.t = 0; S.t0 = 0; S.phase = 'approach'; S.grace = 0; S.bank = 0;
   S.cam0 = camera.position.clone(); S.tgt0 = controls.target.clone();
   const [dx, dz] = JUMP_DIR;
@@ -2536,7 +2495,6 @@ function setTimeOfDay(t) {
   if (waterMat) waterMat.color.setHSL(0.53, 0.35, lerp(0.2, 0.05, smooth(0.4, 1, t)));
   applyGlow(L('lights'));
   if (SMOKE.mat) SMOKE.mat.uniforms.uCol.value.setScalar(lerp(0.8, 0.12, smooth(0.5, 0.95, t)));
-  $('todLabel').textContent = t < 0.18 ? 'Midday' : t < 0.4 ? 'Afternoon' : t < 0.6 ? 'Golden hour' : t < 0.8 ? 'Dusk' : 'Night';
   scheduleEnv();
   renderer.shadowMap.needsUpdate = true;
 }
@@ -2560,12 +2518,10 @@ const VIEWS = {
   orbit: { pos: [-240, 150, 230], target: [0, 20, 0] },
 };
 let mode = 'free', tween = null, lastFollow = null;
-function setActive(view) { document.querySelectorAll('#views [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === view)); }
 function flyTo(pos, target, dur = 2.4) { tween = { p0: camera.position.clone(), t0: controls.target.clone(), p1: new V3(...pos), t1: new V3(...target), start: performance.now() / 1000, dur }; }
 function trainPoint() { return new V3().setFromMatrixPosition(TRAIN.cars[0].matrix); }
 function goView(view) {
   if (SCOUT.on) return;
-  setActive(view);
   controls.autoRotate = false; lastFollow = null;
   if (view === 'follow') {
     mode = 'follow';
@@ -2585,33 +2541,24 @@ function goView(view) {
   }
   flyTo(v.pos, v.target);
 }
-document.querySelectorAll('#views [data-view]').forEach((b) => b.addEventListener('click', () => goView(b.dataset.view)));
 controls.addEventListener('start', () => {
   if (tween) tween = null;
-  if (mode === 'orbit' || mode === 'follow') { mode = 'free'; controls.autoRotate = false; setActive(null); }
+  if (mode === 'orbit' || mode === 'follow') { mode = 'free'; controls.autoRotate = false; }
 });
 let trafficOn = true;
-const btnTraffic = $('btnTraffic');
-function toggleTraffic() { trafficOn = !trafficOn; btnTraffic.textContent = trafficOn ? 'Pause traffic' : 'Resume traffic'; btnTraffic.classList.toggle('active', !trafficOn); }
-btnTraffic.addEventListener('click', toggleTraffic);
-const btnGlow = $('btnGlow');
-function toggleGlow() { bloom.enabled = !bloom.enabled; btnGlow.classList.toggle('active', bloom.enabled); }
-btnGlow.addEventListener('click', toggleGlow);
-const todInput = $('tod');
-todInput.addEventListener('input', () => setTimeOfDay(parseFloat(todInput.value)));
+function toggleTraffic() { trafficOn = !trafficOn; }
 $('btnScout').addEventListener('click', () => startScout());
 addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement && e.target.type !== 'range') return;
   const keys = { Digit1: 'aerial', Digit2: 'forecourt', Digit3: 'street', Digit4: 'summit', Digit5: 'alps', Digit6: 'follow', Digit7: 'orbit' };
   if (keys[e.code]) goView(keys[e.code]);
-  else if (e.code === 'KeyT') { const stops = [0.05, 0.5, 0.7, 0.95]; const nxt = stops.find((s) => s > todValue + 0.01) ?? stops[0]; todInput.value = nxt; setTimeOfDay(nxt); }
+  else if (e.code === 'KeyT') { const stops = [0.05, 0.5, 0.7, 0.95]; const nxt = stops.find((s) => s > todValue + 0.01) ?? stops[0]; setTimeOfDay(nxt); }
   else if (e.code === 'Space') { e.preventDefault(); toggleTraffic(); }
-  else if (e.code === 'KeyG') toggleGlow();
   else if (e.code === 'KeyS' && !$('btnScout').disabled) startScout();
 });
 // Hover and click on landmarks.
 const raycaster = new THREE.Raycaster(), pointer = new THREE.Vector2();
-const tip = $('tip'), info = $('info'), help = $('help');
+const tip = $('tip'), info = $('info');
 let downAt = null;
 function pickAt(e) {
   pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
@@ -2632,18 +2579,17 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (!o) return;
   $('infoTitle').textContent = o.userData.info.title;
   $('infoText').textContent = o.userData.info.text;
-  info.style.display = 'block'; help.style.display = 'none';
+  info.style.display = 'block';
   if (TRAIN.cars && o === TRAIN.cars[0].children[0]) { goView('follow'); return; }
   const box = new THREE.Box3().setFromObject(o), c = box.getCenter(new V3()), size = Math.min(box.getSize(new V3()).length(), 260);
   const dir = camera.position.clone().sub(c).setY(0).normalize();
-  mode = 'free'; setActive(null); controls.autoRotate = false;
+  mode = 'free'; controls.autoRotate = false;
   flyTo([c.x + dir.x * size * 1.1, c.y + size * 0.45, c.z + dir.z * size * 1.1], [c.x, c.y, c.z], 2);
 });
-$('infoClose').addEventListener('click', () => { info.style.display = 'none'; help.style.display = ''; });
+$('infoClose').addEventListener('click', () => { info.style.display = 'none'; });
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
-  bloom.resolution.set(innerWidth, innerHeight);
 });
 
 /* ------------------------------------------------------------------ */
@@ -2735,7 +2681,7 @@ async function init() {
   controls.update();
   const t0 = parseFloat(QS.get('t'));
   const tv = Number.isFinite(t0) ? clamp(t0, 0, 1) : 0.5;
-  todInput.value = tv; setTimeOfDay(tv);
+  setTimeOfDay(tv);
   updateEnvironment();
   $('btnScout').textContent = 'Scout ' + TEAM;
   $('btnScout').disabled = false;
