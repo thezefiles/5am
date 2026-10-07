@@ -291,6 +291,20 @@ function basicGlow(color, base = 1, min = 0, extra = {}) {
   return m;
 }
 function stdGlow(mat, base = 1, min = 0) { glowList.push({ m: mat, base, min }); return mat; }
+// Far off, a bright speck (a sun glint on a window, a car or the river; a headlight) covers a pixel or less and
+// flickers as the camera or the traffic moves, and the bloom blows it up into a glaring square. Past `near` metres
+// cap what the material can output, reaching `cap` at `far`: just under the bloom threshold, or 0 to fade it out.
+function capFar(mat, near, far, cap = 0.85) {
+  const prev = mat.onBeforeCompile, key = mat.customProgramCacheKey.bind(mat);
+  mat.onBeforeCompile = (sh, r) => {
+    prev.call(mat, sh, r);
+    sh.vertexShader = 'varying float vFarD;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\nvFarD = -mvPosition.z;');
+    sh.fragmentShader = 'varying float vFarD;\n' + sh.fragmentShader.replace('#include <opaque_fragment>',
+      `#include <opaque_fragment>\ngl_FragColor.rgb = min(gl_FragColor.rgb, vec3(mix(1e4, ${cap.toFixed(2)}, smoothstep(${near.toFixed(1)}, ${far.toFixed(1)}, vFarD))));`);
+  };
+  mat.customProgramCacheKey = () => key() + `|far${near},${far},${cap}`;
+  return mat;
+}
 function applyGlow(f) {
   NIGHT.value = f;
   for (const g of glowList) {
@@ -988,7 +1002,7 @@ let waterMat = null;
 function buildRiver() {
   const pts = [];
   for (let z = -16000; z <= 12000; z += 30) pts.push([ammerX(z), z]);
-  waterMat = new THREE.MeshStandardMaterial({ color: 0x2c4a52, roughness: 0.08, metalness: 0.1, normalMap: TEX.water, normalScale: new THREE.Vector2(0.35, 0.35) });
+  waterMat = capFar(new THREE.MeshStandardMaterial({ color: 0x2c4a52, roughness: 0.15, metalness: 0.1, normalMap: TEX.water, normalScale: new THREE.Vector2(0.35, 0.35) }), 500, 1500);
   TEX.water.repeat.set(3, 3);   // square ripples, about 9 m across (1 x 60 squashed them into shimmering stripes)
   drape(pts, 26, 0.6, waterMat, { flat: true, uvLen: 26 });
 }
@@ -1041,13 +1055,14 @@ function bridgeY(x, z, y) {
   const deck = lerp(BRIDGE.y0, BRIDGE.y1, (t + BRIDGE.half) / (2 * BRIDGE.half));
   return Math.abs(t) > BRIDGE.half - 20 ? Math.max(y, deck) : deck;
 }
+const RAIL_LINES = {};
 function buildRoads() {
   initBridge();
   const street = std(0xffffff, { map: TEX.street, roughness: 0.85 }), road = std(0xffffff, { map: TEX.road, roughness: 0.85 });
   ROADS.forEach((r, i) => drape(r.line, r.w, (r.town ? 0.25 : 0.2) + (r.main ? 0.06 : 0) + i * 0.004, r.town ? street : road, { uvLen: r.w * 1.6, yFn: i === 1 ? bridgeY : null }));
   drape(RAIL, 5.5, 0.3, std(0xffffff, { map: TEX.rail, roughness: 0.9 }), { uvLen: 5.5 });
   // The rails themselves, as fine lines just above the ballast.
-  const lm = new THREE.LineBasicMaterial({ color: 0x8c9298 });
+  const lm = RAIL_LINES.mat = new THREE.LineBasicMaterial({ color: 0x8c9298 });
   [-0.72, 0.72].forEach((o) => {
     const pts = RAIL.map((p, i) => { const q = RAIL[Math.min(i + 1, RAIL.length - 1)], pr = RAIL[Math.max(i - 1, 0)], dx = q[0] - pr[0], dz = q[1] - pr[1], l = Math.hypot(dx, dz) || 1; const x = p[0] - dz / l * o, z = p[1] + dx / l * o; return new V3(x, meshH(x, z).h + 0.48, z); });
     const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lm); ln.frustumCulled = false; site.add(ln);
@@ -1570,11 +1585,11 @@ function wallMat(kind, { shutter = '#3d5a3a', color = 0xffffff, lit = 0.32, shop
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.065, 0.08) * (0.7 + 0.6 * pane), gl);
           fWin = gl; fLit = gl * step(${(1 - lit).toFixed(2)}, pane);` : ''}
         }`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.12, fWin);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.25, fWin);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.66, 0.34) * fLit * uNight * 1.3;');
   };
   m.customProgramCacheKey = () => 'wall-' + kind + shop + shutter;
-  return m;
+  return capFar(m, 700, 1500);
 }
 // One house type, gable end facing +x (to the street). Returns geometries per material and its chimney top.
 function houseProto({ L, W, H, pitch = 34, oe = 1.0, og = 1.3, balc = [], barn = 0, chimney = true }) {
@@ -2033,7 +2048,7 @@ function carGeo() {
 }
 const CARS = { list: [], routes: [] };
 function buildCars() {
-  const geo = carGeo(), mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.32 });
+  const geo = carGeo(), mat = capFar(new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.45 }), 300, 900);
   instanced(geo, mat, PARKED.map((p) => ({ x: p.x, y: (p.y ?? meshH(p.x, p.z).h + 0.25), z: p.z, ry: p.ry - Math.PI / 2, c: new THREE.Color(pick(CAR_COLORS)) })), { cast: true });
   const lane = (line, o, yFn) => line.map((p, i) => { const q = line[Math.min(i + 1, line.length - 1)], pr = line[Math.max(i - 1, 0)], dx = q[0] - pr[0], dz = q[1] - pr[1], l = Math.hypot(dx, dz) || 1; const x = p[0] - dz / l * o, z = p[1] + dx / l * o; let y = meshH(x, z).h; if (yFn) y = yFn(x, z, y); return [x, y + 0.32, z]; });
   const both = (line, o, yFn) => new Path(lane(line, o, yFn).concat(lane(line.slice().reverse(), o, yFn)), true);
@@ -2043,8 +2058,8 @@ function buildCars() {
   CARS.mesh = new THREE.InstancedMesh(geo, mat, n);
   CARS.list.forEach((c, i) => CARS.mesh.setColorAt(i, new THREE.Color(pick(CAR_COLORS))));
   const lightG = (x, w) => merge([new THREE.BoxGeometry(0.06, 0.16, w).translate(x, 0.74, 0.62), new THREE.BoxGeometry(0.06, 0.16, w).translate(x, 0.74, -0.62)], { uv: false });
-  CARS.head = new THREE.InstancedMesh(lightG(2.22, 0.4), basicGlow(0xfff2d8, 3, 0), n);
-  CARS.tail = new THREE.InstancedMesh(lightG(-2.22, 0.45), basicGlow(0xff2a1a, 2.4, 0), n);
+  CARS.head = new THREE.InstancedMesh(lightG(2.22, 0.4), capFar(basicGlow(0xfff2d8, 3, 0), 400, 1000, 0), n);
+  CARS.tail = new THREE.InstancedMesh(lightG(-2.22, 0.45), capFar(basicGlow(0xff2a1a, 2.4, 0), 400, 1000, 0), n);
   [CARS.mesh, CARS.head, CARS.tail].forEach((m) => { m.frustumCulled = false; site.add(m); });
   CARS.mesh.castShadow = false;
 }
@@ -2071,20 +2086,21 @@ function buildTrain() {
   const pts = RAIL.filter((p) => p[1] > -7000 && p[1] < 7000).map(([x, z]) => [x, meshH(x, z).h + 0.55, z]);
   TRAIN.path = new Path(pts);
   let best = 1e9; pts.forEach((p, i) => { const d = Math.abs(p[2] - STATION.z); if (d < best) { best = d; TRAIN.stop = TRAIN.path.s[i]; } });
-  const red = std(0xc0201a, { roughness: 0.4, metalness: 0.3 }), grey = std(0x3a3d42, { roughness: 0.6 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x1a2028, roughness: 0.15, metalness: 0.4, emissive: 0xfff0d0, emissiveIntensity: 0 });
+  const far = (m) => capFar(m, 400, 1200);
+  const red = far(std(0xc0201a, { roughness: 0.4, metalness: 0.3 })), grey = far(std(0x3a3d42, { roughness: 0.6 }));
+  const glass = far(new THREE.MeshStandardMaterial({ color: 0x1a2028, roughness: 0.3, metalness: 0.4, emissive: 0xfff0d0, emissiveIntensity: 0 }));
   stdGlow(glass, 1.6, 0);
   TRAIN.cars = [0, 1].map(() => {
     const g = new THREE.Group();
     mesh(new THREE.BoxGeometry(25, 3.0, 2.9).translate(0, 2.3, 0), red, 0, 0, 0, g);
     mesh(new THREE.BoxGeometry(23, 0.9, 2.94).translate(0, 2.9, 0), glass, 0, 0, 0, g, false);
-    mesh(new THREE.BoxGeometry(25.2, 0.3, 3.0).translate(0, 3.85, 0), std(0xd8d8d8), 0, 0, 0, g, false);
+    mesh(new THREE.BoxGeometry(25.2, 0.3, 3.0).translate(0, 3.85, 0), far(std(0xd8d8d8)), 0, 0, 0, g, false);
     mesh(new THREE.BoxGeometry(24, 0.7, 2.6).translate(0, 0.45, 0), grey, 0, 0, 0, g, false);
     [12.6, -12.6].forEach((x) => mesh(new THREE.BoxGeometry(0.2, 1.1, 2.4).translate(0, 2.9, 0), glass, x, 0, 0, g, false));
     g.matrixAutoUpdate = false; site.add(g);
     return g;
   });
-  TRAIN.lights = [basicGlow(0xfff2d8, 3, 0), basicGlow(0xff2a1a, 2.4, 0)];
+  TRAIN.lights = [capFar(basicGlow(0xfff2d8, 3, 0), 400, 1200, 0), basicGlow(0xff2a1a, 2.4, 0)];
   TRAIN.headM = mesh(new THREE.BoxGeometry(0.1, 0.3, 2.0), TRAIN.lights[0], 0, 0, 0, scene, false, false);
   // Start with the train standing at the station, not out at the far end of the line.
   TRAIN.T = (TRAIN.stop - CAR_GAP / 2) / 22 + 5;
@@ -2515,6 +2531,8 @@ function setTimeOfDay(t) {
   moon.intensity = 0.45 * smooth(0.65, 1, t);
   renderer.toneMappingExposure = L('exposure');
   scene.environmentIntensity = L('env');
+  // The rails are unlit lines: darken them with the daylight, or they shine across the land at night.
+  if (RAIL_LINES.mat) RAIL_LINES.mat.color.setHex(0x8c9298).multiplyScalar(lerp(1, 0.1, smooth(0.45, 0.95, t)));
   if (waterMat) waterMat.color.setHSL(0.53, 0.35, lerp(0.2, 0.05, smooth(0.4, 1, t)));
   applyGlow(L('lights'));
   if (SMOKE.mat) SMOKE.mat.uniforms.uCol.value.setScalar(lerp(0.8, 0.12, smooth(0.5, 0.95, t)));
